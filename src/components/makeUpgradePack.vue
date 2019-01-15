@@ -56,6 +56,11 @@
             <el-form-item label="升级信息" prop="upgradeDesc">
                 <el-input type="textarea" v-model="ruleForm.upgradeDesc"></el-input>
             </el-form-item>
+            <el-alert title="警告" type="warning"
+                      description="标准服务和WEB服务的bin目录一般不需要升级,除非确定要升级，才勾选bin目录下文件。
+                      WEB服务的conf目录下一般也不需要升级， 并且server.xml中的端口配置每个项目不同，不能随意打到升级包中。"
+                      show-icon :closable="false">
+            </el-alert>
             <el-form-item label="文件选择" prop="installPackFileList">
                 <div style="overflow-y:auto; overflow-x:auto; width:600px; height:200px;" v-show="installFileSelectPanelShow">
                 <el-tree
@@ -66,7 +71,22 @@
                         :props="defaultProps">
                 </el-tree>
                 </div>
+
             </el-form-item>
+            <el-alert v-show="upgradePolicyXmlAlertShow" title="警告" type="warning"
+                      description="policy.xml的升级会覆盖原有的XML文件，务必谨慎升级，因为升级xml可能会改变服务的策略配置。另外policy.xml也会在一定周期后被刷新为数据库中保存的服务策略，此处升级替换没有实际意义。所以一般默认都选择否！"
+                      show-icon :closable="false">
+            </el-alert>
+            <el-form-item label="是否升级policy.xml" prop="isUpgradePolicyXml">
+                <el-radio-group v-model="ruleForm.isUpgradePolicyXml" @change="showUpgradePolicyXmlAlertShowClick()">
+                    <el-radio label="1">是</el-radio>
+                    <el-radio label="2">否</el-radio>
+                    <!--<el-radio label="3">数据库升级</el-radio>-->
+                </el-radio-group>
+            </el-form-item>
+
+
+
             <!--<el-row>
                 <el-col :span="24"><div class="grid-content bg-purple-dark"><span class="margin30">升级内容配置</span></div></el-col>
             </el-row>-->
@@ -157,11 +177,13 @@
                     </el-form-item>
                     </div>
             </div>
-            <div style="margin-top: 30px;text-align: center">
+            <div style="margin: 30px 0;text-align: center">
 
                 <el-button type="primary" @click="submitForm()">生 成 升 级 包</el-button>
 
             </div>
+            <el-button plain @click="open8">
+            </el-button>
 
         </el-form>
 
@@ -176,8 +198,9 @@ export default {
         allLibPanelShow: true,
         allConfPanelShow: false,
         installFileSelectPanelShow: false,
+        upgradePolicyXmlAlertShow: false,
         ruleForm: {
-            inputInstallPackFile: 'D:\\upgradeTest\\CEMS-SERVICE-ALARM',
+            inputInstallPackFile: '',
             serviceName: '',
             serviceCode: '',
             inputUpgradePackCode: '',
@@ -189,6 +212,7 @@ export default {
             changeLibFileString: '',
             changeLibFile: [], //[{ newFile:'aa.txt',oldFile:  'bb.txt',str:  'aa.txt > bb.txt'}]
             fileTreeNode: [],
+            isUpgradePolicyXml: '2'
         },
         configFileName_arr: [],
         confFileName_arr: [],
@@ -270,7 +294,9 @@ export default {
             { code:'00010400',label: 'CEMS-SERVICE-BLOCK'},
             { code:'00FF0300',label: 'CEMS-C-UDP'},
             { code:'00010600',label: 'CEMS-SERVICE-PATCH'},
-            { code:'00FF0B00',label: 'CEMS-SERVICE-TOAUTH'}],
+            { code:'00FF0B00',label: 'CEMS-SERVICE-TOAUTH'},
+            {code:'00FF0D00',label:  'CEMS-SERVICE-IFACE'}
+            ],
 
         serviceCodeInfo: { 'CEMS-SERVICE-CONFIGURE' : '00FF0100',
             'CEMS-SERVICE-SCAN' : '00FF1100',
@@ -303,6 +329,7 @@ export default {
             'CEMS-SERVICE-BLOCK' : '00010400',
             'CEMS-C-UDP' : '00FF0300',
             'CEMS-SERVICE-PATCH' : '00010600',
+            'CEMS-SERVICE-IFACE' : '00FF0D00',
             'CEMS-SERVICE-TOAUTH' : '00FF0B00'},
 
         configFileNameOptions: [],
@@ -317,6 +344,12 @@ export default {
             value: 'test',
             children: []
         }],
+
+        installConfigInfo: {
+            serviceName: '',
+            serviceCode: '',
+            serviceVersion: ''
+        },
 /*
         installPackFileList: [{
             id: 1,
@@ -351,6 +384,17 @@ export default {
   },
   methods: {
 
+      submitSuccessNotify() {
+          this.$notify({
+              type: 'info',
+              title: '提示',
+              message: '升级包生成的位置和安装包目录同级，文件夹名称如：upgrade_CEMS-SERVICE-XX',
+              position: 'bottom-right',
+              duration: 0,
+              offset: 100
+          });
+      },
+
       loadInstallMessage(result,message) {
           this.$message({
               message: message,
@@ -360,7 +404,7 @@ export default {
 
 
       submitSuccessMessage() {
-          this.$alert('请求发送成功，后台正在处理中', '成功', {
+          this.$alert('请求发送成功，后台正在处理中。', '成功', {
               confirmButtonText: '确定',
               type: 'success',
               center: true
@@ -373,6 +417,14 @@ export default {
 
       showLibPanelClick: function() {
           this.libPanelShow = !this.libPanelShow;
+      },
+
+      showUpgradePolicyXmlAlertShowClick: function() {
+          if (this.ruleForm.isUpgradePolicyXml === "1") {
+              this.upgradePolicyXmlAlertShow = true;
+          }else {
+              this.upgradePolicyXmlAlertShow = false;
+          }
       },
 
       showPanelClick: function() {
@@ -519,7 +571,9 @@ export default {
               if (result.code === 200) {
                   // 成功了
                   console.log(result.data);
-                  this.installPackFileList = result.data;
+                  this.installPackFileList = result.data.installPackFileList;
+                  this.installConfigInfo = result.data.installConfigInfo;
+                  this.ruleForm.inputUpgradePackCode = result.data.installConfigInfo.serviceVersion;
                   console.log(this.installPackFileList);
 
                   for (let i = 0;i < this.installPackFileList.length;i++){
@@ -539,7 +593,6 @@ export default {
                       }
                   }
                   this.showInstallFileSelectPanelClick();
-                  this.messageOpen();
                   this.loadInstallMessage('success', '加载成功！');
               } else {
                   // 失败了
@@ -578,6 +631,7 @@ export default {
                   });
 
                   this.submitSuccessMessage();
+                  this.submitSuccessNotify();
               } else {
                   console.log('error submit!!');
                   return false;
